@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d2733">
+<title>Mapa das Ruínas</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: app de tela cheia. Cabeçalho com abas, mapa, painel com o card "onde estou" e a lista. Celular empilha; desktop põe o painel à direita. */
+:root{
+  --marble:#eef0ec;      /* fundo, mármore pentélico frio */
+  --stone:#ffffff;       /* superfícies */
+  --ink:#1d2733;         /* texto */
+  --muted:#5d6874;       /* texto secundário */
+  --line:#d5dad4;        /* divisórias */
+  --kyanos:#1f4e8c;      /* acento, azul egeu */
+  --kyanos-soft:#dde6f2;
+  --here:#0b7a5c;        /* estado "você está aqui" */
+  --here-soft:#d9efe7;
+  --you:#2a7fff;         /* ponto do usuário */
+  --f-display:"Marcellus","Trajan Pro",Georgia,serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --marble:#12171d;--stone:#1a2129;--ink:#e6e9e4;--muted:#9aa4ae;--line:#2c353f;
+  --kyanos:#7fa8e0;--kyanos-soft:#1f2c3d;--here:#4fc79f;--here-soft:#173329;--you:#5b9dff;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --marble:#12171d;--stone:#1a2129;--ink:#e6e9e4;--muted:#9aa4ae;--line:#2c353f;
+  --kyanos:#7fa8e0;--kyanos-soft:#1f2c3d;--here:#4fc79f;--here-soft:#173329;--you:#5b9dff;color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--marble);color:var(--ink);font:15px/1.5 var(--f-body);display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--kyanos);outline-offset:2px}
+
+header{background:var(--stone);border-bottom:1px solid var(--line);
+  padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.brand{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+h1{font:400 1.45rem/1.1 var(--f-display);margin:0;letter-spacing:.02em}
+.brand small{font:500 .7rem var(--f-mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.tabs{display:flex;gap:4px;margin-top:8px;overflow-x:auto;scrollbar-width:none}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:8px 10px;color:var(--muted);font-weight:500;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--kyanos)}
+
+main{flex:1;min-height:0;display:flex;flex-direction:column}
+#map{flex:1 1 52%;min-height:220px;background:var(--line)}
+.panel{flex:1 1 48%;min-height:0;overflow-y:auto;background:var(--marble);
+  padding-block:12px calc(16px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:12px}
+@media (min-width:860px){
+  main{flex-direction:row}
+  #map{flex:1}
+  .panel{flex:0 0 400px;border-left:1px solid var(--line)}
+}
+
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--stone);border-radius:999px;padding:8px 14px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+.btn.primary{background:var(--kyanos);border-color:var(--kyanos);color:var(--stone)}
+.btn[aria-pressed="true"]{background:var(--kyanos-soft);border-color:var(--kyanos);color:var(--ink)}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor;opacity:.8}
+.btn.live .dot{background:var(--here);opacity:1;box-shadow:0 0 0 3px var(--here-soft)}
+
+.card{background:var(--stone);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.card.inside{border-color:var(--here);box-shadow:inset 4px 0 0 var(--here)}
+.eyebrow{font:500 .7rem var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.card.inside .eyebrow{color:var(--here)}
+.card h2{font:400 1.35rem/1.2 var(--f-display);margin:0;text-wrap:balance}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:4px 0 0;font-size:.9rem}
+.meta dt{color:var(--muted)}
+.meta dd{margin:0;min-width:0}
+.card p{margin:4px 0 0;color:var(--ink);max-width:62ch}
+.coords{font:400 .72rem var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.warn{font-size:.82rem;color:var(--muted)}
+.note{font-size:.85rem;color:var(--muted);margin:0}
+
+.list-h{display:flex;justify-content:space-between;align-items:baseline;margin-top:4px}
+.list-h h3{font:400 1.05rem var(--f-display);margin:0}
+ol.sites{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+ol.sites li button{width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:10px 2px;display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:baseline}
+ol.sites li button:hover{background:var(--kyanos-soft)}
+.s-name{font-weight:600;min-width:0}
+.s-dist{font:500 .8rem var(--f-mono);color:var(--kyanos);font-variant-numeric:tabular-nums}
+.s-sub{grid-column:1/-1;font-size:.82rem;color:var(--muted)}
+li.is-here .s-dist{color:var(--here)}
+
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--stone);border-radius:999px;padding:5px 12px;font-size:.85rem;display:inline-flex;gap:6px;align-items:baseline}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--stone)}
+.godsel{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted)}
+.godsel select{font:inherit;color:var(--ink);background:var(--stone);border:1px solid var(--line);border-radius:8px;padding:5px 8px}
+.chip .n{font:500 .75rem var(--f-mono);opacity:.7}
+.tag{font:500 .68rem var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:1px}
+.tag.free{background:var(--here-soft);color:var(--here)}
+.tag.paid{background:var(--kyanos-soft);color:var(--kyanos)}
+.tag.incl{background:var(--line);color:var(--muted)}
+.pin.off{opacity:.25}
+.empty{color:var(--muted);font-size:.9rem;padding:8px 2px;margin:0}
+/* marcadores */
+.pin{width:14px;height:14px;border-radius:50%;background:var(--kyanos);border:2px solid var(--stone);box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.pin.sel{background:var(--ink);transform:scale(1.35)}
+.pin.here{background:var(--here)}
+.you{width:16px;height:16px;border-radius:50%;background:var(--you);border:3px solid #fff;box-shadow:0 0 0 6px rgba(42,127,255,.25)}
+.leaflet-container{font-family:var(--f-body)}
+.tiles-dark{filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.9)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--stone);color:var(--ink)}
+.leaflet-popup-content{margin:10px 14px}
+.pop b{font:400 1rem var(--f-display)}
+.pop span{display:block;font-size:.8rem;color:var(--muted)}
+.leaflet-control-layers,.leaflet-bar a{background:var(--stone);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Mapa das Ruínas</h1>
+    <small id="regionMeta">Atenas</small>
+  </div>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+</header>
+<main>
+  <div id="map" aria-label="Mapa"></div>
+  <section class="panel" aria-live="polite">
+    <div class="controls">
+      <button class="btn primary" id="locBtn"><span class="dot"></span><span id="locLabel">Usar minha localização</span></button>
+      <button class="btn" id="simBtn" aria-pressed="false">Simular tocando no mapa</button>
+    </div>
+    <div class="card" id="card"></div>
+    <div class="list-h"><h3 id="listTitle">Monumentos</h3><span class="eyebrow" id="listSort">ordem do roteiro</span></div>
+    <div class="chips" id="chips" role="group" aria-label="Filtrar por ingresso"></div>
+    <label class="godsel" id="godWrap" for="godSel">Deus ou deusa <select id="godSel"></select></label>
+    <ol class="sites" id="list"></ol>
+    <p class="note">Preços de outubro de 2026, para adulto estrangeiro. Gizé e Cairo em libras egípcias (EGP). Confirme antes de comprar: Grécia em hhticket.gr, Egito em egymonuments.com.</p>
+    <p class="note">Posições aproximadas, com margem de alguns metros. O círculo em volta de cada ponto marca a área da construção.</p>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const REGIONS = {
+  athens:{label:"Atenas", center:[37.9728,23.7262], zoom:15,
+    intro:"A Acrópole e a cidade antiga cabem num raio de 2 km. Sounion fica a 70 km, num bate-volta."},
+  cairo:{label:"Cairo e Gizé", center:[29.985,31.2], zoom:11,
+    intro:"Gizé, Saqqara e Dahshur ficam a oeste do Nilo. O Cairo islâmico e o copta ficam na margem leste."},
+  dahab:{label:"Dahab e Sinai", center:[28.54,34.25], zoom:9,
+    intro:"Dahab não tem ruínas antigas. O patrimônio histórico da região está no Sinai, a cerca de 2h de carro."}
+};
+
+const SITES = [
+  // ATENAS · Acrópole
+  {r:"athens",area:"Acrópole",name:"Partenon",lat:37.97153,lng:23.72661,rad:42,date:"447–432 a.C.",use:"Templo de Atena Partenos e tesouro da cidade",desc:"Projetado por Ictino e Calícrates, com esculturas de Fídias. Abrigava a estátua de ouro e marfim de Atena e o tesouro da Liga de Delos. Foi igreja, mesquita e explodiu em 1687, quando era depósito de pólvora."},
+  {r:"athens",area:"Acrópole",name:"Erecteion",lat:37.97207,lng:23.72644,rad:20,date:"421–406 a.C.",use:"Templo a Atena Polias e Poseidon-Erecteu",desc:"Construído sobre o local onde Atena e Poseidon disputaram a cidade. Famoso pela varanda das Cariátides; as originais estão no Museu da Acrópole."},
+  {r:"athens",area:"Acrópole",name:"Propileus",lat:37.97161,lng:23.72524,rad:28,date:"437–432 a.C.",use:"Portal monumental de entrada da Acrópole",desc:"Obra de Mnésicles, nunca foi concluída por causa da Guerra do Peloponeso. É por aqui que se entra na Acrópole até hoje."},
+  {r:"athens",area:"Acrópole",name:"Templo de Atena Nice",lat:37.97153,lng:23.72476,rad:9,date:"c. 427–424 a.C.",use:"Templo a Atena da Vitória",desc:"Pequeno templo jônico no bastião à direita da entrada. Foi desmontado pelos otomanos em 1686 e remontado no século XIX."},
+  {r:"athens",area:"Encosta sul da Acrópole",name:"Teatro de Dioniso",lat:37.97029,lng:23.7278,rad:50,date:"séc. VI a.C., versão em pedra c. 330 a.C.",use:"Teatro dos festivais de Dioniso",desc:"Berço do teatro ocidental. Aqui estrearam peças de Ésquilo, Sófocles, Eurípides e Aristófanes, para até 17 mil pessoas."},
+  {r:"athens",area:"Encosta sul da Acrópole",name:"Odeon de Herodes Ático",lat:37.97083,lng:23.72458,rad:38,date:"161 d.C.",use:"Teatro coberto para música",desc:"Construído pelo romano Herodes Ático em memória da esposa Regila. Restaurado nos anos 1950, recebe concertos do Festival de Atenas no verão."},
+  {r:"athens",area:"Arredores da Acrópole",name:"Areópago",lat:37.97237,lng:23.72353,rad:35,date:"em uso desde c. séc. VII a.C.",use:"Tribunal de crimes de sangue",desc:"Rocha onde se reunia o conselho que julgava homicídios. Segundo a tradição, São Paulo pregou aqui em c. 51 d.C. Boa vista da Ágora."},
+  {r:"athens",area:"Colinas a oeste",name:"Pnyx",lat:37.97168,lng:23.71938,rad:60,date:"c. 507 a.C.",use:"Assembleia do povo ateniense",desc:"Local da Eclésia, onde os cidadãos votavam leis e guerras. É o lugar físico da democracia ateniense; ali discursaram Péricles e Demóstenes."},
+  {r:"athens",area:"Colinas a oeste",name:"Monumento de Filopapo",lat:37.96777,lng:23.72134,rad:15,date:"114–116 d.C.",use:"Túmulo",desc:"Mausoléu de Caio Júlio Antíoco Filopapo, príncipe exilado de Comagena e benfeitor de Atenas. Do topo da colina se vê o Partenon de frente."},
+  {r:"athens",area:"Encosta sul da Acrópole",name:"Museu da Acrópole",lat:37.96845,lng:23.72851,rad:60,date:"2009",use:"Museu",desc:"Guarda as Cariátides originais e os frisos do Partenon que ficaram na Grécia. O piso de vidro mostra um bairro antigo escavado embaixo."},
+  // ATENAS · Ágoras
+  {r:"athens",area:"Ágora Antiga",name:"Ágora Antiga",lat:37.9747,lng:23.7225,rad:120,date:"séc. VI a.C.",use:"Praça cívica, comercial e política",desc:"Centro da vida pública: mercado, tribunais, conselho e debates. Sócrates conversava aqui. Hoje é um parque arqueológico com entrada própria."},
+  {r:"athens",area:"Ágora Antiga",name:"Templo de Hefesto",lat:37.97559,lng:23.72137,rad:25,date:"c. 449–415 a.C.",use:"Templo a Hefesto e Atena, protetores dos artesãos",desc:"O templo grego mais bem conservado do mundo, porque virou igreja e nunca ficou abandonado. Fica no alto da colina Ágoraios Kolonos."},
+  {r:"athens",area:"Ágora Antiga",name:"Stoa de Átalo",lat:37.97503,lng:23.72452,rad:55,date:"c. 159–138 a.C.",use:"Galeria comercial coberta",desc:"Presente do rei Átalo II de Pérgamo. Foi reconstruída nos anos 1950 com as técnicas originais e hoje abriga o Museu da Ágora."},
+  {r:"athens",area:"Plaka",name:"Ágora Romana",lat:37.97445,lng:23.72616,rad:50,date:"c. 19–11 a.C.",use:"Mercado",desc:"Financiada por Júlio César e Augusto quando o comércio se mudou da Ágora grega. O Portão de Atena Arquegetis ainda está de pé."},
+  {r:"athens",area:"Plaka",name:"Torre dos Ventos",lat:37.97416,lng:23.72674,rad:8,date:"c. séc. I a.C.",use:"Relógio público",desc:"Obra de Andronico de Cirro. Tinha relógios de sol nas faces, relógio de água por dentro e cata-vento no topo. Cada face mostra um dos oito ventos."},
+  {r:"athens",area:"Monastiraki",name:"Biblioteca de Adriano",lat:37.97572,lng:23.72598,rad:55,date:"132–134 d.C.",use:"Biblioteca e centro cultural",desc:"Pátio com jardim e espelho d'água, rodeado de salas de leitura e arquivos de rolos. Fica colada à praça de Monastiraki."},
+  // ATENAS · Leste
+  {r:"athens",area:"Plaka",name:"Monumento de Lisícrates",lat:37.9708,lng:23.7299,rad:6,date:"335–334 a.C.",use:"Troféu de concurso teatral",desc:"Erguido pelo patrocinador de um coro vencedor nos festivais de Dioniso. É o exemplo mais antigo de ordem coríntia no exterior de um edifício."},
+  {r:"athens",area:"Olympieion",name:"Arco de Adriano",lat:37.97099,lng:23.73201,rad:8,date:"131–132 d.C.",use:"Portal cerimonial",desc:"Marcava o limite entre a cidade antiga de Teseu e a nova cidade de Adriano. As inscrições dos dois lados dizem exatamente isso."},
+  {r:"athens",area:"Olympieion",name:"Templo de Zeus Olímpico",lat:37.9693,lng:23.73314,rad:60,date:"iniciado c. 520 a.C., concluído 131 d.C.",use:"Templo a Zeus",desc:"Levou quase 650 anos para ficar pronto. Foi o maior templo da Grécia, com 104 colunas de 17 m. Restam 15 de pé e uma caída."},
+  {r:"athens",area:"Pangrati",name:"Estádio Panatenaico",lat:37.96826,lng:23.74109,rad:110,date:"330 a.C., mármore em 144 d.C.",use:"Estádio das corridas dos Jogos Panatenaicos",desc:"O único estádio do mundo todo em mármore. Reconstruído para os primeiros Jogos Olímpicos modernos, em 1896."},
+  {r:"athens",area:"Kolonaki",name:"Liceu de Aristóteles",lat:37.9753,lng:23.7448,rad:60,date:"335 a.C.",use:"Ginásio e escola filosófica",desc:"Onde Aristóteles ensinava caminhando com os alunos, origem do nome peripatéticos. As ruínas só foram achadas em 1996."},
+  // ATENAS · Oeste
+  {r:"athens",area:"Cerâmico",name:"Cerâmico",lat:37.97818,lng:23.71838,rad:140,date:"cemitério desde c. séc. XII a.C.",use:"Bairro dos oleiros e cemitério principal",desc:"Daqui saíam a Via Sagrada para Elêusis e a procissão Panateneia. Tem o Portão de Dípilon, o maior da muralha, e túmulos esculpidos."},
+  {r:"athens",area:"Akadimia Platonos",name:"Academia de Platão",lat:37.9921,lng:23.708,rad:200,date:"c. 387 a.C.",use:"Escola filosófica",desc:"Primeira instituição de ensino superior do Ocidente, ativa por cerca de 300 anos. Hoje é um parque com fundações expostas."},
+
+  // ATENAS · Outros templos e santuários
+  {r:"athens",area:"Acrópole",name:"Templo Antigo de Atena",lat:37.97185,lng:23.72625,rad:20,date:"c. 525 a.C.",use:"Templo de Atena Polias, antes do Partenon",desc:"Só restam as fundações, entre o Partenon e o Erecteion. Guardava a estátua de madeira mais sagrada de Atena e foi incendiado pelos persas em 480 a.C."},
+  {r:"athens",area:"Acrópole",name:"Templo de Roma e Augusto",lat:37.9716,lng:23.7276,rad:7,date:"c. 27–19 a.C.",use:"Culto ao imperador Augusto e à deusa Roma",desc:"Pequeno templo redondo em frente ao Partenon, com nove colunas jônicas. Restam a base e partes da arquitrave com a inscrição."},
+  {r:"athens",area:"Encosta norte da Acrópole",name:"Santuário de Afrodite e Eros",lat:37.97275,lng:23.7272,rad:12,date:"séc. V a.C.",use:"Santuário a Afrodite e Eros",desc:"Afrodite aqui é a da fertilidade e do casamento, cultuada junto com o filho Eros. Fica ao lado da escada das Arréforas, meninas que desciam por ela à noite levando objetos secretos de Atena, num rito de passagem para a vida adulta. As oferendas ficavam em nichos na rocha. A encosta norte e o Peripatos reabriram em junho de 2025."},
+  {r:"athens",area:"Encosta sudoeste da Acrópole",name:"Santuário de Afrodite Pandemos",lat:37.9714,lng:23.7247,rad:15,date:"culto desde c. séc. VI a.C., reforma no séc. III a.C.",use:"Santuário a Afrodite protetora da união da cidade",desc:"Pandemos quer dizer de todo o povo. A tradição diz que Teseu criou o culto ao unir as vilas da Ática numa só cidade, então essa Afrodite protegia a união dos cidadãos. Séculos depois, Platão reinterpretou o nome como o amor comum, do corpo. Quase nada restou: blocos e uma inscrição com pombas, achados perto do bastião do Templo de Atena Nice. Posição aproximada."},
+  {r:"athens",area:"Ágora Antiga",name:"Santuário de Afrodite Urânia",lat:37.9765,lng:23.7219,rad:15,date:"altar c. 500 a.C., templo séc. I d.C.",use:"Santuário a Afrodite Celeste",desc:"Urânia quer dizer Celeste: é a Afrodite mais antiga, nascida do céu (Urano), segundo Hesíodo. No Banquete, Platão a associa ao amor elevado, da alma e da admiração. Restam o altar, onde se sacrificavam pombas, e as fundações de um templo jônico romano. Fica no canto noroeste da Ágora, junto à rua Adrianou. Parte dos arqueólogos questiona a identificação."},
+  {r:"athens",area:"Ágora Antiga",name:"Templo de Ares",lat:37.97528,lng:23.7225,rad:15,date:"c. 440 a.C., remontado no séc. I a.C.",use:"Templo ao deus da guerra",desc:"Caso raro de templo desmontado em outra cidade e remontado peça por peça na Ágora pelos romanos. Restam as fundações."},
+  {r:"athens",area:"Ágora Antiga",name:"Templo de Apolo Patroo",lat:37.9752,lng:23.72175,rad:12,date:"c. 330 a.C.",use:"Templo a Apolo, pai ancestral dos atenienses",desc:"Pequeno templo ao pé da colina do Hefesto. Ali se fazia o juramento dos magistrados recém-eleitos."},
+  {r:"athens",area:"Encosta sul da Acrópole",name:"Asclepieion",lat:37.9708,lng:23.7263,rad:25,date:"420 a.C.",use:"Santuário de cura de Asclépio",desc:"Doentes dormiam no pórtico esperando um sonho de cura do deus da medicina. Fica entre o Teatro de Dioniso e o Odeon."},
+  {r:"athens",area:"Bate-volta, 10 km",name:"Santuário de Afrodite, Dafni",lat:38.015,lng:23.626,rad:30,date:"séc. V–IV a.C.",use:"Santuário a Afrodite na Via Sagrada",desc:"Afrodite da Via Sagrada, um santuário de beira de estrada no caminho da procissão de Atenas até Elêusis. Mulheres deixavam oferendas nos nichos da rocha pedindo fertilidade e partos seguros. Fica a 1 km do Mosteiro de Dafni, com mosaicos bizantinos. Posição aproximada."},
+  {r:"athens",area:"Bate-volta, 22 km",name:"Santuário de Deméter, Elêusis",lat:38.041,lng:23.5381,rad:120,date:"séc. XV a.C. ao séc. IV d.C.",use:"Santuário dos Mistérios de Elêusis",desc:"O culto secreto mais importante da Grécia antiga, ligado a Deméter e Perséfone. Iniciados vinham de Atenas a pé pela Via Sagrada. Tem museu no local."},
+  {r:"athens",area:"Bate-volta, 38 km",name:"Templo de Ártemis, Bráuron",lat:37.9256,lng:23.9939,rad:60,date:"séc. V a.C.",use:"Santuário de Ártemis protetora das meninas e dos partos",desc:"Meninas atenienses passavam um período aqui servindo Ártemis, as chamadas ursinhas. Tem uma stoa parcialmente reerguida e um museu pequeno e bonito."},
+  // ATENAS · Bate-volta
+  {r:"athens",area:"Bate-volta, 70 km",name:"Templo de Poseidon, Sounion",lat:37.65023,lng:24.02455,rad:40,date:"444–440 a.C.",use:"Templo a Poseidon",desc:"No cabo mais ao sul da Ática, sobre o mar. Os navegantes o viam ao chegar. Lord Byron gravou o nome numa das colunas. Famoso pelo pôr do sol."},
+
+  // CAIRO · Gizé
+  {r:"cairo",area:"Planalto de Gizé",name:"Grande Pirâmide de Quéops",lat:29.97917,lng:31.13417,rad:130,date:"c. 2560 a.C.",use:"Túmulo do faraó Quéops (Khufu)",desc:"A única das sete maravilhas do mundo antigo ainda de pé. Foi a construção mais alta do mundo por cerca de 3.800 anos, com 146 m originais."},
+  {r:"cairo",area:"Planalto de Gizé",name:"Pirâmide de Quéfren",lat:29.97611,lng:31.13083,rad:120,date:"c. 2530 a.C.",use:"Túmulo do faraó Quéfren (Khafre)",desc:"Parece a mais alta por estar num terreno mais elevado. Ainda tem parte do revestimento de calcário liso no topo."},
+  {r:"cairo",area:"Planalto de Gizé",name:"Pirâmide de Miquerinos",lat:29.9725,lng:31.12833,rad:60,date:"c. 2510 a.C.",use:"Túmulo do faraó Miquerinos (Menkaure)",desc:"A menor das três grandes. Tinha a base revestida de granito vermelho de Assuã, que ainda se vê em parte."},
+  {r:"cairo",area:"Planalto de Gizé",name:"Grande Esfinge",lat:29.97528,lng:31.13761,rad:40,date:"c. 2500 a.C.",use:"Guardiã do complexo funerário de Quéfren",desc:"Esculpida direto na rocha, com 73 m de comprimento. Corpo de leão e rosto de faraó, provavelmente o de Quéfren. Mil anos depois foi adorada como Hórus no horizonte, deus do sol nascente; a Estela do Sonho, entre as patas, conta que ela prometeu o trono a Tutmés IV."},
+  {r:"cairo",area:"Planalto de Gizé",name:"Templo do Vale de Quéfren",lat:29.9747,lng:31.1382,rad:28,date:"c. 2530 a.C.",use:"Rituais funerários do faraó",desc:"Blocos de granito encaixados sem argamassa. O corpo do faraó era recebido aqui antes de subir pela calçada até a pirâmide. Na morte, o rei se unia a Osíris, deus dos mortos."},
+  {r:"cairo",area:"Gizé",name:"Grande Museu Egípcio",lat:29.99472,lng:31.11861,rad:250,date:"inaugurado em 2025",use:"Museu",desc:"O maior museu do mundo dedicado a uma só civilização. Reúne todo o tesouro de Tutancâmon e a estátua colossal de Ramsés II no átrio."},
+  // CAIRO · Saqqara, Dahshur, Mênfis
+  {r:"cairo",area:"Saqqara",name:"Pirâmide de Djoser",lat:29.87128,lng:31.21653,rad:80,date:"c. 2670–2650 a.C.",use:"Túmulo do faraó Djoser",desc:"A primeira pirâmide da história, em degraus, projetada pelo arquiteto Imhotep. É a construção de pedra monumental mais antiga que se conhece."},
+  {r:"cairo",area:"Saqqara",name:"Serapeum de Saqqara",lat:29.8752,lng:31.2124,rad:60,date:"c. 1350 a.C. ao séc. I a.C.",use:"Túmulos dos touros sagrados Ápis",desc:"Ápis era o touro vivo em que o deus Ptah se manifestava. Quando morria, era mumificado e enterrado aqui, em galerias subterrâneas com sarcófagos de granito de até 70 toneladas. Os gregos fundiram Ápis com Osíris e criaram o deus Serápis, daí o nome."},
+  {r:"cairo",area:"Mênfis",name:"Templo de Ptah, Mênfis",lat:29.8445,lng:31.2525,rad:150,date:"c. 2700 a.C., ampliado até c. 1200 a.C.",use:"Templo do deus criador Ptah",desc:"Ptah era o deus de Mênfis, criador do mundo pela palavra e patrono dos artesãos. Do maior templo da cidade restam blocos e a casa de embalsamamento do touro Ápis, com mesas de alabastro. O nome Egito vem do grego Aigyptos, que derivava de Hut-ka-Ptah, o templo do espírito de Ptah."},
+  {r:"cairo",area:"Heliópolis (Matariya)",name:"Obelisco de Heliópolis",lat:30.1294,lng:31.3075,rad:40,date:"c. 1950 a.C.",use:"Marco do grande templo do deus-sol Rá",desc:"Heliópolis, a cidade do sol, era o maior centro religioso do Egito antigo, dedicado a Rá e Atum. Quase tudo virou pedra de construção do Cairo; resta este obelisco de Senusret I, o mais antigo do Egito ainda em pé no lugar original, num museu a céu aberto."},
+  {r:"cairo",area:"Mênfis",name:"Mênfis (Mit Rahina)",lat:29.8447,lng:31.2507,rad:300,date:"fundada c. 3100 a.C.",use:"Capital do Egito Antigo",desc:"Capital do Egito unificado por séculos. Hoje é um museu a céu aberto com o colosso deitado de Ramsés II e uma esfinge de alabastro."},
+  {r:"cairo",area:"Dahshur",name:"Pirâmide Vermelha",lat:29.80861,lng:31.20611,rad:120,date:"c. 2590 a.C.",use:"Túmulo do faraó Snefru",desc:"A primeira pirâmide lisa que deu certo. Dá para entrar na câmara, com bem menos gente que em Gizé."},
+  {r:"cairo",area:"Dahshur",name:"Pirâmide Curvada",lat:29.79028,lng:31.20944,rad:110,date:"c. 2600 a.C.",use:"Túmulo do faraó Snefru",desc:"O ângulo muda na metade da altura, uma correção feita durante a obra. Mantém boa parte do revestimento original."},
+  // CAIRO · Cidade
+  {r:"cairo",area:"Centro (Tahrir)",name:"Museu Egípcio",lat:30.04784,lng:31.23365,rad:100,date:"1902",use:"Museu",desc:"O museu histórico de antiguidades egípcias, na praça Tahrir. Ainda guarda milhares de peças, mesmo depois da mudança de parte do acervo para Gizé."},
+  {r:"cairo",area:"Cairo Copta",name:"Igreja Suspensa",lat:30.00527,lng:31.23013,rad:25,date:"séc. VII–IX d.C.",use:"Igreja copta",desc:"Construída sobre o portão da fortaleza romana de Babilônia, por isso parece suspensa. Uma das igrejas cristãs mais antigas do Egito."},
+  {r:"cairo",area:"Cairo Islâmico",name:"Mesquita de Ibn Tulun",lat:30.0287,lng:31.2494,rad:80,date:"876–879 d.C.",use:"Mesquita congregacional",desc:"A mais antiga mesquita do Cairo que mantém a forma original. Pátio enorme e minarete com escada externa em espiral."},
+  {r:"cairo",area:"Cairo Islâmico",name:"Mesquita do Sultão Hassan",lat:30.0323,lng:31.2564,rad:60,date:"1356–1363",use:"Mesquita e madraça (escola)",desc:"Uma das maiores mesquitas medievais do mundo. Abrigava quatro escolas de direito islâmico ao redor do pátio."},
+  {r:"cairo",area:"Cairo Islâmico",name:"Cidadela de Saladino",lat:30.0287,lng:31.25993,rad:250,date:"1176–1183",use:"Fortaleza e sede do governo",desc:"Construída por Saladino contra os cruzados, foi sede do poder por 700 anos. No topo está a Mesquita de Muhammad Ali (1830–1848)."},
+  {r:"cairo",area:"Cairo Islâmico",name:"Bab Zuweila",lat:30.0429,lng:31.2579,rad:15,date:"1092",use:"Portão da muralha fatímida",desc:"Último portão sul da Cairo medieval. Dá para subir nos minaretes por cima dele e ver a cidade velha inteira."},
+  {r:"cairo",area:"Cairo Islâmico",name:"Mesquita Al-Azhar",lat:30.04574,lng:31.26267,rad:60,date:"970–972 d.C.",use:"Mesquita e universidade",desc:"Fundada pelos fatímidas. A universidade ligada a ela é uma das mais antigas do mundo em funcionamento contínuo."},
+  {r:"cairo",area:"Cairo Islâmico",name:"Khan el-Khalili",lat:30.0477,lng:31.2622,rad:150,date:"1382",use:"Bazar e caravançarai",desc:"Mercado medieval que nasceu como hospedagem de caravanas de mercadores. O Café El Fishawy funciona aqui desde 1773."},
+
+  // DAHAB · Sinai
+  {r:"dahab",area:"Sinai central, 4h de Dahab",name:"Templo de Hathor, Serabit el-Khadim",lat:29.0369,lng:33.4589,rad:60,date:"c. 1900 a.C. a c. 1150 a.C.",use:"Templo de Hathor, senhora da turquesa",desc:"No alto de um planalto, perto das minas de turquesa exploradas pelos faraós. Hathor, deusa do amor, da música e da alegria, protegia os mineiros. Restam pilares, estelas e capelas na rocha. Ali foram achadas as inscrições protossinaíticas, das mais antigas escritas alfabéticas do mundo."},
+  {r:"dahab",area:"8 km ao norte de Dahab",name:"Blue Hole",lat:28.5722,lng:34.5372,rad:60,date:"formação natural",use:"Ponto de mergulho e snorkel",desc:"Buraco azul de mais de 100 m de profundidade no recife. Não é monumento, mas é o ponto mais famoso da região. O Arco, a 55 m, é só para mergulho técnico."},
+  {r:"dahab",area:"Santa Catarina, 2h de Dahab",name:"Mosteiro de Santa Catarina",lat:28.55556,lng:33.97611,rad:60,date:"548–565 d.C.",use:"Mosteiro cristão ortodoxo",desc:"Mandado erguer pelo imperador Justiniano. É um dos mosteiros cristãos ativos mais antigos do mundo e guarda a sarça que, pela tradição, é a de Moisés."},
+  {r:"dahab",area:"Santa Catarina, 2h de Dahab",name:"Monte Sinai (cume)",lat:28.5392,lng:33.9753,rad:50,date:"tradição bíblica, capela de 1934",use:"Local de peregrinação",desc:"Pela tradição, onde Moisés recebeu as Tábuas da Lei. A subida noturna, com 3 horas de trilha, termina no nascer do sol a 2.285 m."}
+];
+// Aba Dahab e Sinai oculta: os dados ficam guardados, basta apagar as 3 linhas abaixo para voltar
+const HIDDEN_REGIONS=["dahab"];
+HIDDEN_REGIONS.forEach(k=>delete REGIONS[k]);
+for(let i=SITES.length-1;i>=0;i--) if(HIDDEN_REGIONS.includes(SITES[i].r)) SITES.splice(i,1);
+SITES.forEach((s,i)=>s.id=i);
+
+const ACR="Incluído no ingresso da Acrópole: €30, com horário marcado";
+const TICKETS={
+ "Partenon":"€30, ingresso da Acrópole com horário marcado; cobre todo o rochedo e as encostas","Erecteion":ACR,"Propileus":ACR,"Templo de Atena Nice":ACR,
+ "Teatro de Dioniso":ACR+" (entrada pela encosta sul)",
+ "Odeon de Herodes Ático":"Só se vê de fora, ou entrando num concerto do Festival de Atenas",
+ "Areópago":"Grátis, acesso livre","Pnyx":"Grátis, acesso livre","Monumento de Filopapo":"Grátis, acesso livre",
+ "Museu da Acrópole":"€20",
+ "Ágora Antiga":"€20, inclui o Templo de Hefesto e a Stoa de Átalo",
+ "Templo de Hefesto":"Incluído no ingresso da Ágora Antiga (€20)",
+ "Stoa de Átalo":"Incluído no ingresso da Ágora Antiga (€20)",
+ "Ágora Romana":"€10, inclui a Torre dos Ventos",
+ "Torre dos Ventos":"Incluída no ingresso da Ágora Romana (€10)",
+ "Biblioteca de Adriano":"€10",
+ "Monumento de Lisícrates":"Grátis, fica na rua","Arco de Adriano":"Grátis, fica na rua",
+ "Templo de Zeus Olímpico":"€20","Estádio Panatenaico":"€12, com audioguia",
+ "Liceu de Aristóteles":"€5","Cerâmico":"€10, estava fechado para obras em agosto de 2026",
+ "Templo Antigo de Atena":ACR,"Templo de Roma e Augusto":ACR,
+ "Santuário de Afrodite e Eros":ACR+" (encosta norte)",
+ "Santuário de Afrodite Pandemos":"Incluído no ingresso da Acrópole: fica no caminho de subida, mas quase nada restou",
+ "Santuário de Afrodite Urânia":"Grátis, vê-se da rua Adrianou",
+ "Templo de Ares":"Incluído no ingresso da Ágora Antiga (€20)",
+ "Templo de Apolo Patroo":"Incluído no ingresso da Ágora Antiga (€20)",
+ "Asclepieion":ACR+" (encosta sul)",
+ "Santuário de Afrodite, Dafni":"Grátis, costuma estar cercado; vê-se da estrada",
+ "Santuário de Deméter, Elêusis":"Pago, confira o valor no hhticket.gr",
+ "Templo de Ártemis, Bráuron":"Pago, confira o valor no hhticket.gr",
+ "Academia de Platão":"Grátis, é um parque","Templo de Poseidon, Sounion":"Pago, confira o valor no hhticket.gr",
+ "Grande Pirâmide de Quéops":"Planalto EGP 700 + interior EGP 1.500 (vagas limitadas por dia)",
+ "Pirâmide de Quéfren":"Planalto EGP 700; interior cobrado à parte, confirme na bilheteria",
+ "Pirâmide de Miquerinos":"Planalto EGP 700 + interior EGP 280",
+ "Grande Esfinge":"Incluída no ingresso do planalto de Gizé (EGP 700)",
+ "Templo do Vale de Quéfren":"Incluído no ingresso do planalto de Gizé (EGP 700)",
+ "Grande Museu Egípcio":"EGP 1.590, só online e com horário marcado; não entra no Cairo Pass",
+ "Pirâmide de Djoser":"Saqqara EGP 600 + interior da pirâmide EGP 280",
+ "Mênfis (Mit Rahina)":"EGP 200","Templo de Ptah, Mênfis":"Incluído no ingresso de Mênfis (EGP 200)",
+ "Serapeum de Saqqara":"Ingresso à parte em Saqqara, confirme o valor na bilheteria",
+ "Obelisco de Heliópolis":"Pago, museu a céu aberto de Matariya; valor no local",
+ "Templo de Hathor, Serabit el-Khadim":"Acesso com passeio 4x4 e guia beduíno, pago no local","Pirâmide Vermelha":"Dahshur EGP 200, vale para as duas pirâmides",
+ "Pirâmide Curvada":"Incluída no ingresso de Dahshur (EGP 200)",
+ "Museu Egípcio":"EGP 550","Igreja Suspensa":"Grátis; o Museu Copta ao lado custa EGP 280",
+ "Mesquita de Ibn Tulun":"Grátis, com roupa que cubra ombros e joelhos",
+ "Mesquita do Sultão Hassan":"Pago, valor na bilheteria",
+ "Cidadela de Saladino":"EGP 550, inclui a Mesquita de Muhammad Ali",
+ "Bab Zuweila":"Pago para subir nos minaretes, valor no local",
+ "Mesquita Al-Azhar":"Grátis, com roupa que cubra ombros e joelhos","Khan el-Khalili":"Grátis",
+ "Blue Hole":"Taxa de área protegida cobrada no local; mergulho à parte",
+ "Mosteiro de Santa Catarina":"EGP 200; horário reduzido e fechado em alguns dias",
+ "Monte Sinai (cume)":"Subida com guia beduíno obrigatório, pago no local"
+};
+const GODS={
+ "Partenon":"Atena","Erecteion":"Atena","Templo de Atena Nice":"Atena","Templo Antigo de Atena":"Atena",
+ "Santuário de Afrodite e Eros":"Afrodite","Santuário de Afrodite Pandemos":"Afrodite","Santuário de Afrodite Urânia":"Afrodite","Santuário de Afrodite, Dafni":"Afrodite",
+ "Templo de Zeus Olímpico":"Zeus","Templo de Apolo Patroo":"Apolo","Teatro de Dioniso":"Dioniso","Monumento de Lisícrates":"Dioniso",
+ "Templo de Hefesto":"Hefesto","Templo de Ares":"Ares","Templo de Poseidon, Sounion":"Poseidon","Asclepieion":"Asclépio",
+ "Santuário de Deméter, Elêusis":"Deméter","Templo de Ártemis, Bráuron":"Ártemis",
+ "Grande Esfinge":"Hórus","Templo do Vale de Quéfren":"Osíris","Serapeum de Saqqara":"Ápis e Ptah","Templo de Ptah, Mênfis":"Ápis e Ptah",
+ "Mênfis (Mit Rahina)":"Ápis e Ptah","Obelisco de Heliópolis":"Rá","Templo de Hathor, Serabit el-Khadim":"Hathor"
+};
+let godFilter="all";
+function ticketCat(s){const t=TICKETS[s.name]||"";if(/^Grátis/.test(t))return "free";if(/^Incluíd/.test(t))return "incl";return "paid"}
+const CATS=[["all","Todos"],["free","Grátis"],["paid","Pagos"],["incl","Já incluídos"]];
+const CAT_LABEL={free:"grátis",paid:"pago",incl:"incluído"};
+let filter="all";
+try{const f=localStorage.getItem("ruinas-filter");if(CATS.some(c=>c[0]===f))filter=f}catch(e){}
+const PASSES={
+ athens:"Não existe mais ingresso combinado oficial em Atenas: o de €30 acabou em abril de 2025. Cada sítio se compra à parte no hhticket.gr, e os 7 principais somam cerca de €105. Pacotes de revenda juntam vários, mas saem mais caros.",
+ cairo:"Cairo Pass: US$ 130, vale 5 dias para Gizé, Saqqara, Dahshur, Cidadela e Cairo histórico. Não inclui o Grande Museu Egípcio. Compra no planalto de Gizé ou na Cidadela, com passaporte, foto 3x4 e dólar ou euro em notas novas. Os ingressos avulsos se pagam com cartão.",
+ dahab:"Não há passe. Santa Catarina e o Monte Sinai costumam ser feitos num passeio noturno saindo de Dahab, com transporte e guia incluídos."
+};
+
+
+// ---------- utilitários
+const R=6371000, toRad=d=>d*Math.PI/180;
+function dist(a,b,c,d){const dl=toRad(c-a),dg=toRad(d-b);const x=Math.sin(dl/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+function bearing(a,b,c,d){const y=Math.sin(toRad(d-b))*Math.cos(toRad(c));const x=Math.cos(toRad(a))*Math.sin(toRad(c))-Math.sin(toRad(a))*Math.cos(toRad(c))*Math.cos(toRad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360}
+const DIRS=["norte","nordeste","leste","sudeste","sul","sudoeste","oeste","noroeste"];
+const dirName=b=>DIRS[Math.round(b/45)%8];
+const fmt=m=>m<1000?Math.round(m)+" m":(m<100000?(m/1000).toFixed(1).replace(".",","):Math.round(m/1000).toLocaleString("pt-BR"))+" km";
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ---------- estado
+let region="athens", user=null, selected=null, watchId=null, sim=false, autoRegionDone=false;
+try{const r=localStorage.getItem("ruinas-region"); if(REGIONS[r]) region=r}catch(e){}
+
+// ---------- mapa
+const map=L.map("map",{zoomControl:true}).setView(REGIONS[region].center,REGIONS[region].zoom);
+const dark=matchMedia("(prefers-color-scheme: dark)").matches;
+const TILE_SOURCES=[
+  {url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",opt:{maxZoom:19,attribution:"Mapa &copy; Esri, HERE, Garmin, &copy; OpenStreetMap"}},
+  {url:"https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",opt:{maxZoom:19,subdomains:"abc",attribution:"&copy; OpenStreetMap France"}}
+];
+let srcIdx=0, tileErrors=0;
+const street=L.tileLayer(TILE_SOURCES[0].url,{...TILE_SOURCES[0].opt,className:dark?"tiles-dark":""}).addTo(map);
+street.on("tileerror",()=>{ if(++tileErrors>=4 && srcIdx<TILE_SOURCES.length-1){ srcIdx++; tileErrors=0; street.options.attribution=TILE_SOURCES[srcIdx].opt.attribution; street.options.subdomains=TILE_SOURCES[srcIdx].opt.subdomains||"abc"; street.setUrl(TILE_SOURCES[srcIdx].url); } });
+const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Imagens &copy; Esri"});
+L.control.layers({"Mapa":street,"Satélite":sat},null,{position:"topright"}).addTo(map);
+
+const markers={}, zones={};
+SITES.forEach(s=>{
+  zones[s.id]=L.circle([s.lat,s.lng],{radius:s.rad,color:"#1f4e8c",weight:1,opacity:.5,fillOpacity:.08,interactive:false}).addTo(map);
+  const m=L.marker([s.lat,s.lng],{icon:L.divIcon({className:"",html:`<div class="pin" data-id="${s.id}"></div>`,iconSize:[14,14],iconAnchor:[7,7]}),title:s.name}).addTo(map);
+  m.bindPopup(`<div class="pop"><b>${esc(s.name)}</b><span>${esc(s.date)}</span></div>`);
+  m.on("click",()=>{selected=s.id;render()});
+  markers[s.id]=m;
+});
+let youMarker=null, accCircle=null;
+
+map.on("click",e=>{ if(!sim) return; setUser(e.latlng.lat,e.latlng.lng,5,false); });
+
+// ---------- posição
+function setUser(lat,lng,acc,real){
+  user={lat,lng,acc,real};
+  if(!youMarker){
+    youMarker=L.marker([lat,lng],{icon:L.divIcon({className:"",html:'<div class="you"></div>',iconSize:[16,16],iconAnchor:[8,8]}),zIndexOffset:1000}).addTo(map);
+    accCircle=L.circle([lat,lng],{radius:acc,color:"#2a7fff",weight:1,fillOpacity:.1,interactive:false}).addTo(map);
+  }else{youMarker.setLatLng([lat,lng]);accCircle.setLatLng([lat,lng]).setRadius(acc)}
+  selected=null;
+  if(real && !autoRegionDone){
+    autoRegionDone=true;
+    const n=nearestAll(); if(n && dist(lat,lng,n.s.lat,n.s.lng)<300000 && n.s.r!==region) setRegion(n.s.r,false);
+    const near=nearest(); if(near && near.d<5000) map.setView([lat,lng],17); else if(near) map.fitBounds(L.latLngBounds([[lat,lng],[near.s.lat,near.s.lng]]),{padding:[40,40]});
+  }
+  render();
+}
+function nearestAll(){if(!user)return null;let b=null;SITES.forEach(s=>{const d=dist(user.lat,user.lng,s.lat,s.lng);if(!b||d<b.d)b={s,d}});return b}
+function nearest(){if(!user)return null;let b=null;SITES.filter(s=>s.r===region).forEach(s=>{const d=dist(user.lat,user.lng,s.lat,s.lng);if(!b||d<b.d)b={s,d}});return b}
+function insideSite(){
+  if(!user)return null;let b=null;
+  SITES.filter(s=>s.r===region).forEach(s=>{const d=dist(user.lat,user.lng,s.lat,s.lng);if(d<=s.rad){const k=d/s.rad;if(!b||s.rad<b.s.rad||(s.rad===b.s.rad&&k<b.k))b={s,d,k}}});
+  return b;
+}
+
+const locBtn=document.getElementById("locBtn"), locLabel=document.getElementById("locLabel"), simBtn=document.getElementById("simBtn");
+let locError="";
+locBtn.addEventListener("click",()=>{
+  if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;locBtn.classList.remove("live");locLabel.textContent="Usar minha localização";return}
+  if(!("geolocation" in navigator)){locError="Este navegador não oferece localização.";render();return}
+  sim=false;simBtn.setAttribute("aria-pressed","false");locError="";autoRegionDone=false;
+  locLabel.textContent="Procurando você…";
+  watchId=navigator.geolocation.watchPosition(
+    p=>{locBtn.classList.add("live");locLabel.textContent="Localização ativa";locError="";setUser(p.coords.latitude,p.coords.longitude,p.coords.accuracy,true)},
+    e=>{navigator.geolocation.clearWatch(watchId);watchId=null;locBtn.classList.remove("live");locLabel.textContent="Usar minha localização";
+        locError=e.code===1?"A permissão de localização foi negada. Libere nas configurações do navegador para este site.":"Não consegui pegar sua posição agora. Tente ao ar livre.";render()},
+    {enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+});
+simBtn.addEventListener("click",()=>{
+  sim=!sim;simBtn.setAttribute("aria-pressed",String(sim));
+  if(sim&&watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;locBtn.classList.remove("live");locLabel.textContent="Usar minha localização"}
+  render();
+});
+
+// ---------- abas
+const tabs=document.getElementById("tabs");
+Object.entries(REGIONS).forEach(([k,v])=>{
+  const b=document.createElement("button");b.className="tab";b.role="tab";b.textContent=v.label;b.dataset.k=k;
+  b.addEventListener("click",()=>setRegion(k,true));tabs.appendChild(b);
+});
+function setRegion(k,fly){
+  region=k;selected=null;try{localStorage.setItem("ruinas-region",k)}catch(e){}
+  if(fly) map.setView(REGIONS[k].center,REGIONS[k].zoom);
+  render();
+}
+
+// ---------- render
+function metaBlock(s){return `<dl class="meta"><dt>Data</dt><dd>${esc(s.date)}</dd><dt>Função</dt><dd>${esc(s.use)}</dd><dt>Ingresso</dt><dd>${esc(TICKETS[s.name]||"Confira no local")}</dd></dl><p>${esc(s.desc)}</p><span class="coords">${s.lat.toFixed(5)}° N, ${s.lng.toFixed(5)}° E</span>`}
+function render(){
+  document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",String(t.dataset.k===region)));
+  document.getElementById("regionMeta").textContent=REGIONS[region].label;
+  const card=document.getElementById("card");card.className="card";
+  const inside=insideSite(), near=nearest();
+  document.querySelectorAll(".pin").forEach(p=>{p.classList.toggle("here",inside&&+p.dataset.id===inside.s.id);p.classList.toggle("sel",selected!==null&&+p.dataset.id===selected)});
+
+  let html="";
+  if(selected!==null){
+    const s=SITES[selected];
+    const extra=user?` · a ${fmt(dist(user.lat,user.lng,s.lat,s.lng))} de você`:"";
+    html=`<span class="eyebrow">${esc(s.area)}${extra}</span><h2>${esc(s.name)}</h2>${metaBlock(s)}`;
+  }else if(inside){
+    const s=inside.s;card.classList.add("inside");
+    html=`<span class="eyebrow">Você está em · ${esc(s.area)}</span><h2>${esc(s.name)}</h2>${metaBlock(s)}`;
+    if(user.real&&user.acc>s.rad*1.5) html+=`<span class="warn">Precisão do GPS: ±${Math.round(user.acc)} m. Pode confundir com uma construção vizinha.</span>`;
+  }else if(near){
+    const s=near.s, far=near.d>20000;
+    const dir=dirName(bearing(user.lat,user.lng,s.lat,s.lng));
+    html=far
+      ?`<span class="eyebrow">Você está fora da região</span><h2>${fmt(near.d)} até ${esc(REGIONS[region].label)}</h2><p>O ponto mais próximo desta aba é ${esc(s.name)}, a ${dir}. Use “Simular tocando no mapa” para testar daqui.</p>`
+      :`<span class="eyebrow">Mais perto de você · ${fmt(near.d)} a ${dir}</span><h2>${esc(s.name)}</h2>${metaBlock(s)}`;
+  }else{
+    html=`<span class="eyebrow">${esc(REGIONS[region].label)}</span><h2>Onde você está?</h2><p>${esc(REGIONS[region].intro)}</p><p><strong>Ingressos:</strong> ${esc(PASSES[region])}</p><p>Toque em “Usar minha localização” para ver em qual construção você está, ou toque num ponto do mapa ou da lista para ler sobre ele.</p>`;
+  }
+  if(sim) html+=`<span class="warn">Modo simulação ligado: toque no mapa para se posicionar.</span>`;
+  if(locError) html+=`<span class="warn">${esc(locError)}</span>`;
+  card.innerHTML=html;
+
+  // lista
+  const regionSites=SITES.filter(s=>s.r===region);
+  if(filter!=="all"&&!regionSites.some(s=>ticketCat(s)===filter)) filter="all";
+  const chips=document.getElementById("chips");chips.innerHTML="";
+  CATS.forEach(([k,l])=>{const n=k==="all"?regionSites.length:regionSites.filter(s=>ticketCat(s)===k).length;
+    if(k!=="all"&&!n)return;
+    const b=document.createElement("button");b.className="chip";b.setAttribute("aria-pressed",String(filter===k));
+    b.innerHTML=`${l}<span class="n">${n}</span>`;
+    b.addEventListener("click",()=>{filter=k;try{localStorage.setItem("ruinas-filter",k)}catch(e){};render()});chips.appendChild(b)});
+  document.querySelectorAll(".pin").forEach(p=>{const s=SITES[+p.dataset.id];p.classList.toggle("off",filter!=="all"&&ticketCat(s)!==filter)});
+  const gods=[...new Set(regionSites.map(s=>GODS[s.name]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt"));
+  if(godFilter!=="all"&&!gods.includes(godFilter)) godFilter="all";
+  const gw=document.getElementById("godWrap"), gs=document.getElementById("godSel");
+  gw.hidden=!gods.length;
+  gs.innerHTML=`<option value="all">Todos</option>`+gods.map(g=>`<option value="${esc(g)}">${esc(g)} (${regionSites.filter(s=>GODS[s.name]===g).length})</option>`).join("");
+  gs.value=godFilter;
+  const passGod=s=>godFilter==="all"||GODS[s.name]===godFilter;
+  document.querySelectorAll(".pin").forEach(p=>{const s=SITES[+p.dataset.id];if(!passGod(s))p.classList.add("off")});
+  let items=regionSites.filter(s=>(filter==="all"||ticketCat(s)===filter)&&passGod(s)).map(s=>({s,d:user?dist(user.lat,user.lng,s.lat,s.lng):null}));
+  if(user) items.sort((a,b)=>a.d-b.d);
+  document.getElementById("listSort").textContent=user?"por distância":"por área";
+  document.getElementById("listTitle").textContent=`${items.length} lugares`;
+  if(!items.length){document.getElementById("list").innerHTML='<li class="empty">Nenhum lugar com essa combinação de filtros nesta aba.</li>';return}
+  const list=document.getElementById("list");list.innerHTML="";
+  items.forEach(({s,d})=>{
+    const li=document.createElement("li");if(inside&&inside.s.id===s.id)li.className="is-here";
+    li.innerHTML=`<button><span class="s-name">${esc(s.name)}<span class="tag ${ticketCat(s)}">${CAT_LABEL[ticketCat(s)]}</span></span><span class="s-dist">${d!==null?(d<=s.rad?"aqui":fmt(d)):""}</span><span class="s-sub">${esc(s.area)} · ${esc(TICKETS[s.name]||s.date)}</span></button>`;
+    li.querySelector("button").addEventListener("click",()=>{selected=s.id;map.setView([s.lat,s.lng],Math.max(map.getZoom(),17));markers[s.id].openPopup();render();document.getElementById("card").scrollIntoView({block:"nearest",behavior:"smooth"})});
+    list.appendChild(li);
+  });
+}
+document.getElementById("godSel").addEventListener("change",e=>{godFilter=e.target.value;render()});
+render();
+</script>
+</body>
+</html>
